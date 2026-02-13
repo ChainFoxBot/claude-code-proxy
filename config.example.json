@@ -1,0 +1,35 @@
+{
+  "server": {
+    "port": 3457,
+    "host": "127.0.0.1"
+  },
+  "logging": {
+    "enabled": true,
+    "level": "verbose",
+    "dir": "./logs"
+  },
+  "providers": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
+      "apiKey": ""
+    },
+    {
+      "name": "zp",
+      "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
+      "apiKey": "your-zpai-key-here"
+    },
+    {
+      "name": "yescode",
+      "baseUrl": "https://co.yes.vg/v1/messages",
+      "apiKey": ""
+    }
+  ],
+  "router": {
+    "haiku": "zp,glm-4.7",
+    "sonnet": "zp,glm-4.7",
+    "opus": "zp,glm-4.7",
+    "image": "zp,glm-4.7",
+    "webSearch": 200000
+  }
+}

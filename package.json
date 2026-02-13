@@ -1,0 +1,20 @@
+{
+  "name": "cc-proxy",
+  "version": "0.1.0",
+  "description": "Lightweight LLM proxy server for Claude Code",
+  "type": "module",
+  "bin": {
+    "ccp": "./scripts/ccp"
+  },
+  "scripts": {
+    "start": "bun run src/server.ts",
+    "dev": "bun run --watch src/server.ts",
+    "init": "bun run src/scripts/init.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0"
+  }
+}

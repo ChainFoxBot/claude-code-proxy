@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/
+*.jsonl
+
+# Runtime data
+*.pid
+.DS_Store
+
+# Sensitive configuration
+config.json
+.env
+.env.*
+*.key
+*.pem
+
+# Claude Code local settings (may contain API keys)
+.claude/settings.local.json
+.claude/
+
+# Old scripts (replaced by bun global install)
+cc-proxy.sh
+test-proxy.sh
+# ccp is now the main CLI tool, don't ignore
+# ccp
+
+
+# Build output
+dist/
+*.tsbuildinfo

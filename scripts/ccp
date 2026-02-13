@@ -1,0 +1,72 @@
+#!/bin/bash
+# cc-proxy manager script (bun global install wrapper)
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CCP_DIR="$SCRIPT_DIR"
+
+# Check if we're in the scripts directory
+if [ "$(basename "$CCP_DIR")" = "scripts" ]; then
+    CCP_DIR="$(dirname "$CCP_DIR")"
+fi
+
+CCP_DATA="$HOME/.claude-code-proxy"
+CCP_LOG="$CCP_DATA/logs/server.log"
+CCP_PID="$CCP_DATA/cc-proxy.pid"
+
+activate() {
+    if pgrep -f "bun.*server.ts" > /dev/null 2>&1; then return; fi
+    mkdir -p "$CCP_DATA/logs" 2>/dev/null
+    (cd "$CCP_DIR" && nohup bun run src/server.ts > "$CCP_LOG" 2>&1 &)
+    echo $! > "$CCP_PID"
+}
+
+stop() {
+    [ -f "$CCP_PID" ] && kill $(cat "$CCP_PID") 2>/dev/null
+    rm -f "$CCP_PID"
+    pkill -f "bun.*server.ts" 2>/dev/null
+}
+
+status() {
+    if pgrep -f "bun.*server.ts" > /dev/null 2>&1; then
+        echo "✅ cc-proxy is running"
+        curl -s http://127.0.0.1:3456/health 2>/dev/null | jq . 2>/dev/null || echo "Health unavailable"
+    else
+        echo "❌ cc-proxy is not running"
+    fi
+}
+
+logs() { tail -f "$CCP_LOG" 2>/dev/null || echo "No logs"; }
+
+help() {
+    cat << 'HELP'
+cc-proxy - Claude Code LLM Proxy Manager
+
+USAGE: ccp <command>
+
+COMMANDS:
+  activate    Silent auto-start (for .zshrc)
+  start       Force restart and start
+  stop        Stop server
+  restart     Restart server  
+  status      Show status
+  logs        Tail logs
+  help        Show this help
+
+GLOBAL INSTALL:
+  bun install -g cc-proxy    # From npm
+  bun link                  # From local source
+
+CONFIG: ~/.claude-code-proxy/config.json
+HELP
+}
+
+case "$1" in
+    activate) activate ;;
+    start) stop; sleep 1; activate; echo "✅ started" ;;
+    stop) stop; echo "🛑 stopped" ;;
+    restart) stop; sleep 1; activate; echo "🔄 restarted" ;;
+    status) status ;;
+    logs) logs ;;
+    help|--help|-h) help ;;
+    *) echo "❌ Unknown: $1"; help; exit 1 ;;
+esac
