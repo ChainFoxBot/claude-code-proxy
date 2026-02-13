@@ -86,6 +86,111 @@ ccp start
 bun start
 ```
 
+
+## 配置参考
+
+### 完整配置结构
+
+```json
+{
+  "server": {
+    "port": 3457,
+    "host": "127.0.0.1"
+  },
+  "logging": {
+    "enabled": true,
+    "level": "verbose",
+    "dir": "~/.claude-code-proxy/logs"
+  },
+  "providers": [
+    {
+      "name": "zp",
+      "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
+      "apiKey": "your-api-key",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "zp,glm-4.7",
+    "sonnet": "zp,glm-4.7",
+    "opus": "zp,glm-4.7",
+    "image": "zp,glm-4.7"
+  }
+}
+```
+
+### 参数说明
+
+#### `server`
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|---------|------|
+| `port` | number | `3457` | 代理服务器端口号 |
+| `host` | string | `"127.0.0.1"` | 绑定的主机地址 |
+
+#### `logging`
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|---------|------|
+| `enabled` | boolean | `true` | 启用/禁用日志 |
+| `level` | string | `"verbose"` | 日志级别：`"basic"`、`"standard"` 或 `"verbose"` |
+| `dir` | string | `"~/.claude-code-proxy/logs"` | 日志文件存储目录 |
+
+#### `providers`
+
+提供商配置数组。每个提供商对象：
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|--------|------|
+| `name` | string | ✅ 是 | 提供商唯一标识符（用于路由） |
+| `baseUrl` | string | ✅ 是 | API 端点 URL |
+| `apiKey` | string | ✅ 是 | API 认证密钥 |
+| `format` | string | 否 | API 格式：`"anthropic"`、`"openai"` 或省略（透传模式） |
+
+**格式类型：**
+- `"anthropic"`：使用 Anthropic 兼容头（x-api-key, anthropic-version）
+- `"openai"`：转换为 OpenAI 格式（Authorization: Bearer）
+- 省略：透传模式（仅替换 API 密钥，转发原始头）
+
+#### `router`
+
+将 Claude 模型名映射到提供商端点。
+
+格式：`"<claude-model>": "<provider-name>,<actual-model-name>"`
+
+| 参数 | 说明 | 示例 |
+|------|------|------|
+| `haiku` | 快速/经济模型路由 | `"zp,glm-4.7"` |
+| `sonnet` | 均衡性能模型路由 | `"zp,glm-4.7"` |
+| `opus` | 高性能模型路由 | `"openrouter,anthropic/claude-opus-4.5"` |
+| `image` | 图像生成模型路由 | `"zp,glm-4.7"` |
+
+### 路由语法
+
+```json
+"router": {
+  "haiku": "provider-name,model-name"
+}
+```
+
+**组成部分：**
+- **提供商名称**：必须匹配提供商的 `name` 字段
+- **模型名称**：向提供商请求的实际模型
+
+**示例：**
+- `"zp,glm-4.7"`：使用 `zp` 提供商，请求 `glm-4.7` 模型
+- `"openrouter,anthropic/claude-opus-4.5"`：使用 OpenRouter，请求 Claude Opus 4.5
+
+### 环境变量覆盖
+
+代理可以从 `ANTHROPIC_BASE_URL` 检测端口：
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
+```
+
+这将覆盖 `server.port` 配置并使用端口 `3456`。
+
 服务器将：
 - 从 `~/.claude-code-proxy/` 加载配置
 - 在 `~/.claude-code-proxy/logs/` 存储日志

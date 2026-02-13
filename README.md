@@ -86,6 +86,111 @@ ccp start
 bun start
 ```
 
+
+## Configuration Reference
+
+### Complete Configuration Structure
+
+```json
+{
+  "server": {
+    "port": 3457,
+    "host": "127.0.0.1"
+  },
+  "logging": {
+    "enabled": true,
+    "level": "verbose",
+    "dir": "~/.claude-code-proxy/logs"
+  },
+  "providers": [
+    {
+      "name": "zp",
+      "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
+      "apiKey": "your-api-key",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "zp,glm-4.7",
+    "sonnet": "zp,glm-4.7",
+    "opus": "zp,glm-4.7",
+    "image": "zp,glm-4.7"
+  }
+}
+```
+
+### Parameters
+
+#### `server`
+
+| Parameter | Type | Default | Description |
+|----------|------|---------|-------------|
+| `port` | number | `3457` | Port number for the proxy server |
+| `host` | string | `"127.0.0.1"` | Host address to bind to |
+
+#### `logging`
+
+| Parameter | Type | Default | Description |
+|----------|------|---------|-------------|
+| `enabled` | boolean | `true` | Enable/disable logging |
+| `level` | string | `"verbose"` | Log detail level: `"basic"`, `"standard"`, or `"verbose"` |
+| `dir` | string | `"~/.claude-code-proxy/logs"` | Directory to store log files |
+
+#### `providers`
+
+Array of provider configurations. Each provider object:
+
+| Parameter | Type | Required | Description |
+|----------|------|----------|-------------|
+| `name` | string | ✅ Yes | Unique provider identifier (used in routing) |
+| `baseUrl` | string | ✅ Yes | API endpoint URL |
+| `apiKey` | string | ✅ Yes | API key for authentication |
+| `format` | string | No | API format: `"anthropic"`, `"openai"`, or omit for pass-through |
+
+**Format Types:**
+- `"anthropic"`: Use Anthropic-compatible headers (x-api-key, anthropic-version)
+- `"openai"`: Convert to OpenAI format (Authorization: Bearer)
+- Omitted: Pass-through mode (forward original headers, only replace API key)
+
+#### `router`
+
+Maps Claude model names to provider endpoints.
+
+Format: `"<claude-model>": "<provider-name>,<actual-model-name>"`
+
+| Parameter | Description | Example |
+|----------|-------------|---------|
+| `haiku` | Fast/inexpensive model routing | `"zp,glm-4.7"` |
+| `sonnet` | Balanced performance model routing | `"zp,glm-4.7"` |
+| `opus` | High-performance model routing | `"openrouter,anthropic/claude-opus-4.5"` |
+| `image` | Image generation model routing | `"zp,glm-4.7"` |
+
+### Router Syntax
+
+```json
+"router": {
+  "haiku": "provider-name,model-name"
+}
+```
+
+**Components:**
+- **Provider name**: Must match a provider's `name` field
+- **Model name**: Actual model to request from provider
+
+**Examples:**
+- `"zp,glm-4.7"`: Use `zp` provider, request `glm-4.7` model
+- `"openrouter,anthropic/claude-opus-4.5"`: Use OpenRouter, request Claude Opus 4.5
+
+### Environment Variables Override
+
+The proxy can detect port from `ANTHROPIC_BASE_URL`:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
+```
+
+This will override the `server.port` configuration and use port `3456`.
+
 ## Configuration Examples
 
 ### Zhipu AI (Anthropic format)

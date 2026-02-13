@@ -86,6 +86,111 @@ ccp start
 bun start
 ```
 
+
+## 構成リファレンス
+
+### 完全な構造
+
+```json
+{
+  "server": {
+    "port": 3457,
+    "host": "127.0.0.1"
+  },
+  "logging": {
+    "enabled": true,
+    "level": "verbose",
+    "dir": "~/.claude-code-proxy/logs"
+  },
+  "providers": [
+    {
+      "name": "zp",
+      "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
+      "apiKey": "your-api-key",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "zp,glm-4.7",
+    "sonnet": "zp,glm-4.7",
+    "opus": "zp,glm-4.7",
+    "image": "zp,glm-4.7"
+  }
+}
+```
+
+### パラメータ
+
+#### `server`
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|------|------------|------|
+| `port` | number | `3457` | プロキシサーバーのポート番号 |
+| `host` | string | `"127.0.0.1"` | バインドするホストアドレス |
+
+#### `logging`
+
+| パラメータ | 型 | デフォルト | 説明 |
+|-----------|------|------------|------|
+| `enabled` | boolean | `true` | ログの有効/無効 |
+| `level` | string | `"verbose"` | ログレベル：`"basic"`、`"standard"`、`"verbose"` |
+| `dir` | string | `"~/.claude-code-proxy/logs"` | ログファイル保存先 |
+
+#### `providers`
+
+プロバイダー設定配列。各プロバイダーオブジェクト：
+
+| パラメータ | 型 | 必須 | 説明 |
+|-----------|------|--------|------|
+| `name` | string | ✅ はい | プロバイダーの一意識別子（ルーティングで使用） |
+| `baseUrl` | string | ✅ はい | API エンドポイント URL |
+| `apiKey` | string | ✅ はい | API 認証キー |
+| `format` | string | いいえ | API フォーマット：`"anthropic"`、`"openai"`、または省略（pass-through） |
+
+**フォーマット種類：**
+- `"anthropic"`：Anthropic 互換ヘッダーを使用（x-api-key, anthropic-version）
+- `"openai"`：OpenAI フォーマットに変換（Authorization: Bearer）
+- 省略：Pass-through モード（元のヘッダーを転送、API キーのみ置換）
+
+#### `router`
+
+Claude モデル名をプロバイダーエンドポイントにマッピング。
+
+形式：`"<claude-model>": "<provider-name>,<actual-model-name>"`
+
+| パラメータ | 説明 | 例 |
+|-----------|------|------|
+| `haiku` | 高速/低コストモデルルーティング | `"zp,glm-4.7"` |
+| `sonnet` | バランス性能モデルルーティング | `"zp,glm-4.7"` |
+| `opus` | 高性能モデルルーティング | `"openrouter,anthropic/claude-opus-4.5"` |
+| `image` | 画像生成モデルルーティング | `"zp,glm-4.7"` |
+
+### ルーティング構文
+
+```json
+"router": {
+  "haiku": "provider-name,model-name"
+}
+```
+
+**構成要素：**
+- **プロバイダー名**：プロバイダーの `name` フィールドに一致する必要
+- **モデル名**：プロバイダーにリクエストする実際のモデル
+
+**例：**
+- `"zp,glm-4.7"`：`zp` プロバイダー使用、`glm-4.7` モデルリクエスト
+- `"openrouter,anthropic/claude-opus-4.5"`：OpenRouter 使用、Claude Opus 4.5 リクエスト
+
+### 環境変数による上書き
+
+`ANTHROPIC_BASE_URL` からポートを検出可能：
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
+```
+
+これにより `server.port` 設定を上書きし、ポート `3456` を使用します。
+
 サバーは：
 - `~/.claude-code-proxy/` から設定を読み込み
 - `~/.claude-code-proxy/logs/` にログを保存
