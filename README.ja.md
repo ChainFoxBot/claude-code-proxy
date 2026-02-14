@@ -31,6 +31,7 @@ bun link
 ```bash
 ccp start    # プロキシサーバーを起動
 ccp status   # ステータス確認
+ccp config   # エディターで設定ファイルを開く
 ccp logs     # ログ表示
 ccp help     # すべてのコマンドを表示
 ```
@@ -252,6 +253,7 @@ ccp start       # 強制再起動して起動
 ccp stop        # プロキシサーバーを停止
 ccp restart     # プロキシサーバーを再起動
 ccp status      # 実行中ステータスを表示
+ccp config      # エディターで設定ファイルを開く（zed > vscode > vi）
 ccp logs        # サーバーログをリアルタイム表示
 ccp help        # ヘルプを表示
 ```

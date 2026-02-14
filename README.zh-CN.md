@@ -31,6 +31,7 @@ bun link
 ```bash
 ccp start    # 启动代理服务器
 ccp status   # 检查状态
+ccp config   # 在编辑器中打开配置文件
 ccp logs     # 查看日志
 ccp help     # 显示所有命令
 ```
@@ -252,6 +253,7 @@ ccp start       # 强制重启并启动
 ccp stop        # 停止代理服务器
 ccp restart     # 重启代理服务器
 ccp status      # 显示运行状态
+ccp config      # 在编辑器中打开配置文件（zed > vscode > vi）
 ccp logs        # 实时查看服务器日志
 ccp help        # 显示帮助信息
 ```

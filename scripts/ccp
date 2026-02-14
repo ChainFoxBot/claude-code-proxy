@@ -69,6 +69,23 @@ EOF
 
 logs() { tail -f "$CCP_LOG" 2>/dev/null || echo "No logs"; }
 
+config() {
+    CCP_CONFIG="$CCP_DATA/config.json"
+    if [ ! -f "$CCP_CONFIG" ]; then
+        echo "❌ Config not found: $CCP_CONFIG"
+        echo "Run 'bun run init' first to create config"
+        exit 1
+    fi
+    # Try editors in order: zed > vscode > vi
+    if command -v zed >/dev/null 2>&1; then
+        zed "$CCP_CONFIG"
+    elif command -v code >/dev/null 2>&1; then
+        code "$CCP_CONFIG"
+    else
+        vi "$CCP_CONFIG"
+    fi
+}
+
 help() {
     cat << 'HELP'
 cc-proxy - Claude Code LLM Proxy Manager
@@ -82,6 +99,7 @@ COMMANDS:
   restart     Restart server
   status      Show status
   logs        Tail logs
+  config      Open config file in editor
   help        Show this help
 
 CONFIG AUTO-RELOAD:
@@ -102,6 +120,7 @@ case "$1" in
     restart) stop; sleep 1; activate; echo "🔄 restarted" ;;
     status) status ;;
     logs) logs ;;
+    config) config ;;
     help|--help|-h) help ;;
     *) echo "❌ Unknown: $1"; help; exit 1 ;;
 esac

@@ -31,6 +31,7 @@ This installs the `ccp` command globally:
 ```bash
 ccp start    # Start proxy server
 ccp status   # Check status
+ccp config   # Open config file in editor
 ccp logs     # View logs
 ccp help     # Show all commands
 ```
@@ -247,6 +248,7 @@ ccp start       # Force restart and start
 ccp stop        # Stop the proxy server
 ccp restart     # Restart the proxy server
 ccp status      # Show running status
+ccp config      # Open config file in editor (zed > vscode > vi)
 ccp logs        # Tail server logs in real-time
 ccp help        # Show help message
 ```
