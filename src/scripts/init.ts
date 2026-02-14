@@ -119,7 +119,7 @@ function createDefaultConfig(configPath: string): void {
       {
         name: 'zp',
         baseUrl: 'https://api.z.ai/api/anthropic/v1/messages',
-        apiKey: '42709681b1864963b544d2a9ca0bf0d2.dZ6TUczOEDLtrZvb'
+        apiKey: ''
       },
       {
         name: 'yescode',

@@ -19,7 +19,9 @@ config.json
 
 # Claude Code local settings (may contain API keys)
 .claude/settings.local.json
-.claude/
+# Auto-generated memory files
+**/CLAUDE.md
+MEMORY.md
 
 # Old scripts (replaced by bun global install)
 cc-proxy.sh
