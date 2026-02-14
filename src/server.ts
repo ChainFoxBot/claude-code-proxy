@@ -11,6 +11,29 @@ import chokidar from 'chokidar';
 
 const app = new Hono();
 
+// Strip thinking blocks from messages to avoid signature mismatch errors
+// when switching between different Claude models
+function stripThinkingBlocks(body: any): any {
+  if (!body.messages || !Array.isArray(body.messages)) {
+    return body;
+  }
+
+  const processed = {
+    ...body,
+    messages: body.messages.map((msg: any) => {
+      if (!msg.content || !Array.isArray(msg.content)) {
+        return msg;
+      }
+      return {
+        ...msg,
+        content: msg.content.filter((item: any) => item.type !== 'thinking')
+      };
+    })
+  };
+
+  return processed;
+}
+
 let config;
 try {
   config = loadConfig();
@@ -120,16 +143,19 @@ app.post('/v1/messages', async (c) => {
     const body = await c.req.json();
     const headers = Object.fromEntries(c.req.raw.headers);
 
+    // Strip thinking blocks to avoid signature mismatch when switching models
+    const processedBody = stripThinkingBlocks(body);
+
     // Log request
     requestId = appLogger.startRequest(
       'POST',
       '/v1/messages',
       headers,
-      body
+      processedBody
     );
 
     // Resolve provider and model mapping
-    const context = requestMapper.resolveProvider(body.model);
+    const context = requestMapper.resolveProvider(processedBody.model);
     const { provider, modelName } = context;
 
     // Normalize format to lowercase
@@ -141,7 +167,7 @@ app.post('/v1/messages', async (c) => {
 
     if (format === 'openai') {
       // Convert Anthropic → OpenAI format
-      providerRequest = convertAnthropicToOpenAI({ ...body, model: modelName });
+      providerRequest = convertAnthropicToOpenAI({ ...processedBody, model: modelName });
       fetchHeaders = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${provider.apiKey}`,
@@ -150,7 +176,7 @@ app.post('/v1/messages', async (c) => {
       };
     } else if (format === 'anthropic') {
       // Explicit Anthropic format headers
-      providerRequest = { ...body, model: modelName };
+      providerRequest = { ...processedBody, model: modelName };
       fetchHeaders = {
         'Content-Type': 'application/json',
         'x-api-key': provider.apiKey,
@@ -169,12 +195,12 @@ app.post('/v1/messages', async (c) => {
       if (provider.apiKey) {
         fetchHeaders['x-api-key'] = provider.apiKey;
       }
-      providerRequest = { ...body, model: modelName };
+      providerRequest = { ...processedBody, model: modelName };
     }
 
     // Forward request to provider
     // Log forward details before sending (only once, not verbose for streaming)
-    if (!body.stream) {
+    if (!processedBody.stream) {
       appLogger.logForward(
         provider.name,
         modelName,
@@ -208,7 +234,7 @@ app.post('/v1/messages', async (c) => {
     }
 
     // Handle streaming response
-    if (body.stream) {
+    if (processedBody.stream) {
       // Performance optimization: Skip per-chunk logging for streaming
       // Each SSE chunk would trigger disk I/O, killing performance
       // Instead, log a single summary after stream completes
@@ -254,7 +280,7 @@ app.post('/v1/messages', async (c) => {
 
     // Convert OpenAI format to Anthropic format if needed
     if (format === 'openai' && responseBody.choices) {
-      responseBody = convertOpenAIToAnthropic(responseBody, body.model);
+      responseBody = convertOpenAIToAnthropic(responseBody, processedBody.model);
     }
 
     // Log response details (combine forward + response into one call)
@@ -264,7 +290,7 @@ app.post('/v1/messages', async (c) => {
       responseBody,
       provider.name,
       modelName,
-      body.model
+      processedBody.model
     );
 
     return c.json(responseBody);
