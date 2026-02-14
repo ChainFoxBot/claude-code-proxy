@@ -29,7 +29,32 @@ stop() {
 status() {
     if pgrep -f "bun.*server.ts" > /dev/null 2>&1; then
         echo "✅ cc-proxy is running"
-        curl -s http://127.0.0.1:3456/health 2>/dev/null | jq . 2>/dev/null || echo "Health unavailable"
+        echo ""
+
+        # Try common ports for status endpoint
+        STATUS_JSON=""
+        for PORT in 3456 3457; do
+            STATUS_JSON=$(curl -s "http://127.0.0.1:$PORT/status" 2>/dev/null)
+            # Validate JSON before accepting (check for "server" key)
+            if [ -n "$STATUS_JSON" ] && [ "$STATUS_JSON" != "" ]; then
+                if echo "$STATUS_JSON" | grep -q '"server"'; then
+                    break
+                fi
+            fi
+        done
+
+        if [ -n "$STATUS_JSON" ]; then
+            # Use status.js script from fixed location
+            TEMP_JSON=$(mktemp)
+            # Use heredoc to write JSON (handles special characters)
+            cat > "$TEMP_JSON" << EOF
+$STATUS_JSON
+EOF
+            bun run "$CCP_DATA/status.js" "$TEMP_JSON"
+            rm -f "$TEMP_JSON"
+        else
+            echo "⚠️  Status endpoint unavailable"
+        fi
     else
         echo "❌ cc-proxy is not running"
     fi
@@ -47,10 +72,13 @@ COMMANDS:
   activate    Silent auto-start (for .zshrc)
   start       Force restart and start
   stop        Stop server
-  restart     Restart server  
+  restart     Restart server
   status      Show status
   logs        Tail logs
   help        Show this help
+
+CONFIG AUTO-RELOAD:
+  Edit ~/.claude-code-proxy/config.json to automatically reload configuration
 
 GLOBAL INSTALL:
   bun install -g cc-proxy    # From npm

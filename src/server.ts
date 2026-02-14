@@ -7,6 +7,7 @@ import { Logger } from './logger.js';
 import { RequestMapper } from './proxy.js';
 import { convertAnthropicToOpenAI, convertOpenAIToAnthropic } from './format-converter.js';
 import { join } from 'path';
+import chokidar from 'chokidar';
 
 const app = new Hono();
 
@@ -26,40 +27,56 @@ const requestMapper = new RequestMapper(
   config.router
 );
 
-// Hot reload configuration
-let configWatcher: any = null;
+// Hot reload configuration with chokidar
+let configWatcher: chokidar.FSWatcher | null = null;
 
 function setupConfigWatcher() {
   const configPath = getDefaultConfigPath();
 
-  try {
-    // Use Bun.watch if available, otherwise warn
-    if (typeof Bun !== 'undefined' && Bun.watch) {
-      configWatcher = Bun.watch(configPath, async () => {
-        console.log('🔄 Config file changed, reloading...');
-        try {
-          const newConfig = await require('./config.js').reloadConfig();
-          if (newConfig) {
-            // Update providers and router
-            (requestMapper as any).updateProviders(newConfig.providers);
-            (requestMapper as any).updateRouter(newConfig.router);
+  // Reload function
+  const reloadConfig = async () => {
+    console.log('🔄 Config file changed, reloading...');
+    try {
+      const newConfig = await require('./config.js').reloadConfig();
+      if (newConfig) {
+        // Update providers and router
+        (requestMapper as any).updateProviders(newConfig.providers);
+        (requestMapper as any).updateRouter(newConfig.router);
 
-            // Update logger
-            (appLogger as any).updateConfig(newConfig.logging);
+        // Update logger
+        (appLogger as any).updateConfig(newConfig.logging);
 
-            config = newConfig;
-            console.log('✅ Configuration reloaded successfully');
-          }
-        } catch (err) {
-          console.error('❌ Failed to reload config:', err);
-        }
-      });
-      console.log(`👀 Watching config file: ${configPath}`);
-    } else {
-      console.warn('⚠️  File watching not available in this environment, hot reload disabled');
+        config = newConfig;
+        console.log('✅ Configuration reloaded successfully');
+        console.log(`   OPUS → ${config.router.opus}`);
+        console.log(`   SONNET → ${config.router.sonnet}`);
+        console.log(`   HAIKU → ${config.router.haiku}`);
+      }
+    } catch (err) {
+      console.error('❌ Failed to reload config:', err);
     }
+  };
+
+  try {
+    // Use chokidar for reliable file watching across platforms
+    configWatcher = chokidar.watch(configPath, {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 50,
+      },
+    });
+
+    configWatcher.on('change', reloadConfig);
+    configWatcher.on('error', (error) => {
+      console.error('❌ Watcher error:', error);
+    });
+
+    console.log(`👀 Watching config file: ${configPath}`);
+    console.log('💡 Edit config file to automatically reload configuration');
   } catch (err) {
-    console.warn('⚠️  Could not watch config file, hot reload disabled:', err);
+    console.warn('⚠️  Could not setup config watcher:', err);
   }
 }
 
@@ -272,8 +289,13 @@ app.post('/v1/messages', async (c) => {
   }
 });
 
-// Parse port from ANTHROPIC_BASE_URL, fallback to config
+// Parse port from config (highest priority), then ANTHROPIC_BASE_URL, then default
 function resolvePort(): number {
+  // Config file has highest priority
+  if (config.server?.port) {
+    return config.server.port;
+  }
+  // Environment variable as fallback
   const baseUrl = process.env.ANTHROPIC_BASE_URL;
   if (baseUrl) {
     try {
@@ -282,7 +304,7 @@ function resolvePort(): number {
       if (port) return port;
     } catch {}
   }
-  return config.server.port;
+  return 3457; // Default port
 }
 
 const PORT = resolvePort();

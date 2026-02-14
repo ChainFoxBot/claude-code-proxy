@@ -12,6 +12,7 @@
     "init": "bun run src/scripts/init.ts"
   },
   "dependencies": {
+    "chokidar": "^5.0.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {

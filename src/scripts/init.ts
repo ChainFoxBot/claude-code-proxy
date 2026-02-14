@@ -52,6 +52,20 @@ function migrateConfig(): void {
   const oldConfigPath = getOldConfigPath();
   const newConfigPath = getNewConfigPath();
 
+  // Check if new config already exists - protect existing config
+  if (existsSync(newConfigPath)) {
+    console.log('✅ Config already exists at:', newConfigPath);
+    console.log('   Server is using this config file.\n');
+
+    // Migrate old config if it exists
+    if (existsSync(oldConfigPath)) {
+      console.log('📖 Project config.json found at:', oldConfigPath);
+      console.log('💡 You can delete project config.json - it\'s no longer used');
+      console.log('   Server uses: ~/.claude-code-proxy/config.json\n');
+    }
+    return;
+  }
+
   // Check if old config exists
   if (!existsSync(oldConfigPath)) {
     console.log('❌ No config.json found in current directory');

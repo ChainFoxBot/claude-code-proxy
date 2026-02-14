@@ -203,4 +203,11 @@ export class Logger {
     }
     this.flush();
   }
+
+  /**
+   * Update logging configuration (for hot reload)
+   */
+  updateConfig(config: LoggingConfig): void {
+    this.config = config;
+  }
 }

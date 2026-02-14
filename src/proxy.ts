@@ -66,4 +66,18 @@ export class RequestMapper {
       modelName: parsed.modelName,
     };
   }
+
+  /**
+   * Update providers configuration (for hot reload)
+   */
+  updateProviders(providers: ProviderConfig[]): void {
+    this.providers = providers;
+  }
+
+  /**
+   * Update router configuration (for hot reload)
+   */
+  updateRouter(router: RouterConfig): void {
+    this.router = router;
+  }
 }
