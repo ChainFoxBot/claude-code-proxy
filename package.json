@@ -1,5 +1,5 @@
 {
-  "name": "cc-proxy",
+  "name": "@sifwenf/cc-proxy",
   "version": "0.1.0",
   "description": "Lightweight LLM proxy server for Claude Code",
   "type": "module",
