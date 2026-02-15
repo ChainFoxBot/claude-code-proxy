@@ -12,18 +12,44 @@
     {
       "name": "openrouter",
       "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
-      "apiKey": ""
+      "apiKey": "your-openrouter-key-here",
+      "format": "openai",
+      "params": {
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 4096
+      }
     },
     {
       "name": "zp",
       "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
-      "apiKey": "your-zpai-key-here"
+      "apiKey": "your-zpai-key-here",
+      "format": "anthropic",
+      "params": {
+        "temperature": 0.7,
+        "max_tokens": 8192
+      }
+    },
+    {
+      "name": "anthropic-direct",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "apiKey": "your-anthropic-key-here",
+      "format": "anthropic"
     }
   ],
   "router": {
-    "haiku": "zp,glm-4.7",
-    "sonnet": "zp,glm-4.7",
-    "opus": "zp,glm-4.7",
+    "haiku": "zp,glm-4.7-flashx",
+    "sonnet": [
+      "zp,glm-4.7",
+      "openrouter,anthropic/claude-sonnet-4"
+    ],
+    "opus": {
+      "targets": [
+        { "provider": "zp", "model": "glm-4.7", "weight": 70 },
+        { "provider": "anthropic-direct", "model": "claude-opus-4-5-20251101", "weight": 30 }
+      ],
+      "strategy": "weighted-round-robin"
+    },
     "image": "zp,glm-4.7"
   }
 }

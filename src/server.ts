@@ -5,7 +5,8 @@ import { streamText } from 'hono/streaming';
 import { loadConfig, getDataDir, getDefaultConfigPath } from './config.js';
 import { Logger } from './logger.js';
 import { RequestMapper } from './proxy.js';
-import { convertAnthropicToOpenAI, convertOpenAIToAnthropic } from './format-converter.js';
+import { getAdapterRegistry } from './adapters/registry.js';
+import type { AdapterContext } from './adapters/types.js';
 import { join } from 'path';
 import chokidar from 'chokidar';
 
@@ -159,44 +160,25 @@ app.post('/v1/messages', async (c) => {
     const { provider, modelName } = context;
 
     // Normalize format to lowercase
-    const format = provider.format?.toLowerCase();
+    const format = provider.format?.toLowerCase() || 'pass-through';
 
-    // Prepare request body and headers based on provider format
-    let providerRequest: any;
-    let fetchHeaders: Record<string, string>;
+    // Get adapter from registry (stateless, thread-safe)
+    const registry = getAdapterRegistry();
+    const adapter = registry.get(format);
 
-    if (format === 'openai') {
-      // Convert Anthropic → OpenAI format
-      providerRequest = convertAnthropicToOpenAI({ ...processedBody, model: modelName });
-      fetchHeaders = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${provider.apiKey}`,
-        'HTTP-Referer': 'https://claude.ai',
-        'X-Title': 'Claude Code',
-      };
-    } else if (format === 'anthropic') {
-      // Explicit Anthropic format headers
-      providerRequest = { ...processedBody, model: modelName };
-      fetchHeaders = {
-        'Content-Type': 'application/json',
-        'x-api-key': provider.apiKey,
-        'anthropic-version': '2023-06-01',
-      };
-    } else {
-      // No format specified: pass-through proxy
-      // Forward original headers, only replace api key and model
-      const originalHeaders = Object.fromEntries(c.req.raw.headers);
-      fetchHeaders = { ...originalHeaders };
-      // Remove hop-by-hop headers
-      delete fetchHeaders['host'];
-      delete fetchHeaders['connection'];
-      delete fetchHeaders['content-length'];
-      // Set provider's API key
-      if (provider.apiKey) {
-        fetchHeaders['x-api-key'] = provider.apiKey;
-      }
-      providerRequest = { ...processedBody, model: modelName };
-    }
+    // Prepare adapter context with all necessary data (including headers for pass-through)
+    const adapterContext: AdapterContext = {
+      originalRequest: processedBody,
+      provider,
+      modelName,
+      originalHeaders: format === 'pass-through'
+        ? Object.fromEntries(c.req.raw.headers)
+        : undefined
+    };
+
+    // Use adapter to prepare request and headers (stateless operations)
+    const providerRequest = adapter.prepareRequest(adapterContext);
+    const fetchHeaders = adapter.prepareHeaders(adapterContext);
 
     // Forward request to provider
     // Log forward details before sending (only once, not verbose for streaming)
@@ -278,9 +260,9 @@ app.post('/v1/messages', async (c) => {
     // Handle non-streaming response
     let responseBody = await response.json();
 
-    // Convert OpenAI format to Anthropic format if needed
-    if (format === 'openai' && responseBody.choices) {
-      responseBody = convertOpenAIToAnthropic(responseBody, processedBody.model);
+    // Process response through adapter (e.g., convert OpenAI → Anthropic)
+    if (adapter.processResponse) {
+      responseBody = adapter.processResponse(responseBody, adapterContext);
     }
 
     // Log response details (combine forward + response into one call)

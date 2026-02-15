@@ -7,11 +7,13 @@ Lightweight LLM proxy server for Claude Code - route Anthropic API requests to a
 ## Features
 
 - **Model Routing**: Map Claude models (haiku, sonnet, opus) to any provider model
+- **Load Balancing**: Distribute requests across multiple providers with weighted round-robin
 - **Multi-Provider**: Support multiple LLM providers simultaneously
 - **Format Conversion**: Auto-convert between Anthropic and OpenAI formats
 - **Hot Reload**: Configuration changes applied automatically without restart
 - **Performance Optimized**: Async batch logging for minimal overhead
 - **Auto-Start**: Shell integration for silent background startup
+- **Concurrency Safe**: Thread-safe design for high-concurrency scenarios
 
 ## Installation
 
@@ -155,9 +157,7 @@ Array of provider configurations. Each provider object:
 
 #### `router`
 
-Maps Claude model names to provider endpoints.
-
-Format: `"<claude-model>": "<provider-name>,<actual-model-name>"`
+Maps Claude model names to provider endpoints. Supports three configuration formats:
 
 | Parameter | Description | Example |
 |----------|-------------|---------|
@@ -166,13 +166,17 @@ Format: `"<claude-model>": "<provider-name>,<actual-model-name>"`
 | `opus` | High-performance model routing | `"openrouter,anthropic/claude-opus-4.5"` |
 | `image` | Image generation model routing | `"zp,glm-4.7"` |
 
-### Router Syntax
+### Router Configuration Formats
+
+#### Format 1: Single Provider (Simple)
 
 ```json
 "router": {
-  "haiku": "provider-name,model-name"
+  "sonnet": "provider-name,model-name"
 }
 ```
+
+All requests go to a single provider.
 
 **Components:**
 - **Provider name**: Must match a provider's `name` field
@@ -181,6 +185,48 @@ Format: `"<claude-model>": "<provider-name>,<actual-model-name>"`
 **Examples:**
 - `"zp,glm-4.7"`: Use `zp` provider, request `glm-4.7` model
 - `"openrouter,anthropic/claude-opus-4.5"`: Use OpenRouter, request Claude Opus 4.5
+
+#### Format 2: Multiple Providers (Round-Robin)
+
+```json
+"router": {
+  "sonnet": [
+    "provider-a,model-a",
+    "provider-b,model-b"
+  ]
+}
+```
+
+Requests are distributed evenly across providers in rotation. Perfect for:
+- Load distribution
+- Cost optimization
+- Failover scenarios
+
+#### Format 3: Weighted Distribution (Advanced)
+
+```json
+"router": {
+  "opus": {
+    "targets": [
+      { "provider": "provider-a", "model": "model-a", "weight": 70 },
+      { "provider": "provider-b", "model": "model-b", "weight": 30 }
+    ],
+    "strategy": "weighted-round-robin"
+  }
+}
+```
+
+Distribute requests based on weights (70% to provider-a, 30% to provider-b).
+
+### Load Balancing Strategies
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `round-robin` | Rotate through targets sequentially | Equal distribution, providers have similar performance |
+| `weighted-round-robin` | Distribute based on weights | Unequal distribution, providers have different capacities |
+| `random` | Random selection | Simple distribution without tracking state |
+
+**Default:** If not specified, `round-robin` is used.
 
 ### Environment Variables Override
 
@@ -240,6 +286,83 @@ This will override the `server.port` configuration and use port `3456`.
 }
 ```
 
+### Load Balancing Examples
+
+#### Scenario 1: Cost Optimization
+
+Use cheaper provider for most requests, premium provider for complex tasks:
+
+```json
+{
+  "providers": [
+    {
+      "name": "budget",
+      "baseUrl": "https://api.budget-llm.com/v1/messages",
+      "apiKey": "key1",
+      "format": "anthropic"
+    },
+    {
+      "name": "premium",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "apiKey": "key2",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "budget,model-haiku",
+    "sonnet": [
+      "budget,model-sonnet",
+      "premium,claude-sonnet-4"
+    ],
+    "opus": {
+      "targets": [
+        { "provider": "budget", "model": "model-opus", "weight": 80 },
+        { "provider": "premium", "model": "claude-opus-4-5-20251101", "weight": 20 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+#### Scenario 2: Failover Setup
+
+Primary provider with backup:
+
+```json
+{
+  "router": {
+    "sonnet": [
+      "primary,claude-sonnet-4",
+      "backup,claude-sonnet-4"
+    ]
+  }
+}
+```
+
+Requests alternate between primary and backup providers.
+
+#### Scenario 3: Multi-Cloud Distribution
+
+Distribute across multiple cloud providers:
+
+```json
+{
+  "router": {
+    "sonnet": {
+      "targets": [
+        { "provider": "aws", "model": "claude-sonnet-4", "weight": 40 },
+        { "provider": "gcp", "model": "claude-sonnet-4", "weight": 35 },
+        { "provider": "azure", "model": "claude-sonnet-4", "weight": 25 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+40% to AWS, 35% to GCP, 25% to Azure.
+
 ## CLI Commands
 
 ```bash
@@ -276,8 +399,20 @@ The proxy is optimized for high-concurrency scenarios:
 - **No per-chunk logging**: Streaming responses bypass per-chunk overhead
 - **Efficient memory usage**: ~100KB buffer limit
 - **Graceful shutdown**: Flushes logs before exit
+- **Concurrency safe**: Thread-safe load balancing with isolated request contexts
 
 Handles 100+ concurrent requests from agent-swarm scenarios.
+
+### Concurrency Safety
+
+Load balancing is safe for high-concurrency use cases:
+
+- ✅ **Multiple terminals**: No interference between concurrent terminal sessions
+- ✅ **Multiple tab sessions**: No cross-session pollution
+- ✅ **Multiple subagents**: Mutations are isolated per request
+- ✅ **Thread-safe counters**: Load balancer maintains accurate distribution
+
+Each request receives isolated context objects, and provider configurations remain immutable.
 
 ## License
 

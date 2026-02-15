@@ -1,17 +1,44 @@
 // Configuration types
+export interface ProviderParams {
+  temperature?: number;
+  top_p?: number;
+  max_tokens?: number;
+  stop?: string[];
+  stream?: boolean;
+  [key: string]: any; // Support any provider-specific parameters
+}
+
 export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
   format?: string; // "anthropic" | "openai" | undefined (pass-through)
+  params?: ProviderParams; // Provider-specific parameters
 }
 
+// Load Balancing Types
+export interface RouteTarget {
+  provider: string;
+  model: string;
+  weight?: number; // Weight for weighted strategies, default: 1
+}
+
+export type LoadBalanceStrategy = 'round-robin' | 'weighted-round-robin' | 'random';
+
+export type RouteConfig =
+  | string // Simple: "provider,model"
+  | string[] // Array: ["provider1,model1", "provider2,model2"]
+  | {
+      targets: RouteTarget[];
+      strategy?: LoadBalanceStrategy;
+    };
+
 export interface RouterConfig {
-  haiku: string;    // Format: "providerName,modelName" e.g., "zp,glm-4.7"
-  sonnet: string;   // Format: "providerName,modelName"
-  opus: string;     // Format: "providerName,modelName"
-  image?: string;   // Optional: "providerName,modelName"
-  webSearch?: string | number;  // Optional: "providerName,modelName" or threshold
+  haiku: RouteConfig;
+  sonnet: RouteConfig;
+  opus: RouteConfig;
+  image?: RouteConfig;
+  webSearch?: RouteConfig;
 }
 
 export interface LoggingConfig {
