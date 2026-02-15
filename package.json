@@ -4,7 +4,7 @@
   "description": "Lightweight LLM proxy server for Claude Code",
   "type": "module",
   "bin": {
-    "ccp": "./scripts/ccp"
+    "ccp": "scripts/ccp"
   },
   "scripts": {
     "start": "bun run src/server.ts",
