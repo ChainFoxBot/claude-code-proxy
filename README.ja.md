@@ -7,11 +7,13 @@ Claude Code 用の軽量級 LLM プロキシサーバー - Anthropic API リク�
 ## 機能
 
 - **モデルルーティング**: Claude モデル（haiku、sonnet、opus）を任意のプロバイダーモデルにマッピング
+- **負荷分散**: 加重ラウンドロビンで複数プロバイダー間でリクエストを分散
 - **マルチプロバイダー**: 複数の LLM プロバイダーを同時サポート
 - **フォーマット変換**: Anthropic と OpenAI フォーマット間の自動変換
 - **ホットリロード**: 設定変更を自動適用、再起動不要
 - **パフォーマンス最適化**: 非同バッチログ記録でオーバーヘッド最小化
 - **自動起動**: Shell 統み込み、バックグラウンドで静黙起動
+- **並行性安全**: 高並行シナリオ向けスレッドセーフ設計
 
 ## インストール
 
@@ -155,9 +157,7 @@ bun start
 
 #### `router`
 
-Claude モデル名をプロバイダーエンドポイントにマッピング。
-
-形式：`"<claude-model>": "<provider-name>,<actual-model-name>"`
+Claude モデル名をプロバイダーエンドポイントにマッピング。3つの設定フォーマットをサポート：
 
 | パラメータ | 説明 | 例 |
 |-----------|------|------|
@@ -166,13 +166,17 @@ Claude モデル名をプロバイダーエンドポイントにマッピング�
 | `opus` | 高性能モデルルーティング | `"openrouter,anthropic/claude-opus-4.5"` |
 | `image` | 画像生成モデルルーティング | `"zp,glm-4.7"` |
 
-### ルーティング構文
+### ルーター設定フォーマット
+
+#### フォーマット 1: 単一プロバイダー（シンプル）
 
 ```json
 "router": {
-  "haiku": "provider-name,model-name"
+  "sonnet": "provider-name,model-name"
 }
 ```
+
+すべてのリクエストが単一のプロバイダーに送信されます。
 
 **構成要素：**
 - **プロバイダー名**：プロバイダーの `name` フィールドに一致する必要
@@ -181,6 +185,48 @@ Claude モデル名をプロバイダーエンドポイントにマッピング�
 **例：**
 - `"zp,glm-4.7"`：`zp` プロバイダー使用、`glm-4.7` モデルリクエスト
 - `"openrouter,anthropic/claude-opus-4.5"`：OpenRouter 使用、Claude Opus 4.5 リクエスト
+
+#### フォーマット 2: 複数プロバイダー（ラウンドロビン）
+
+```json
+"router": {
+  "sonnet": [
+    "provider-a,model-a",
+    "provider-b,model-b"
+  ]
+}
+```
+
+リクエストはローテーションでプロバイダー間に均等分散されます。以下に最適：
+- 負荷分散
+- コスト最適化
+- フェイルオーバーシナリオ
+
+#### フォーマット 3: 加重分散（高度）
+
+```json
+"router": {
+  "opus": {
+    "targets": [
+      { "provider": "provider-a", "model": "model-a", "weight": 70 },
+      { "provider": "provider-b", "model": "model-b", "weight": 30 }
+    ],
+    "strategy": "weighted-round-robin"
+  }
+}
+```
+
+重みに基づいてリクエストを分散（70% を provider-a、30% を provider-b へ）。
+
+### 負荷分散戦略
+
+| 戦略 | 説明 | ユースケース |
+|------|------|--------------|
+| `round-robin` | ターゲットを順番にローテーション | 均等分散、プロバイダーが同様の性能 |
+| `weighted-round-robin` | 重みに基づいて分散 | 不均等分散、プロバイダーが異なる容量 |
+| `random` | ランダム選択 | 状態追跡なしのシンプルな分散 |
+
+**デフォルト：** 指定がない場合、`round-robin` が使用されます。
 
 ### 環境変数による上書き
 
@@ -245,6 +291,83 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
 }
 ```
 
+### 負荷分散設定例
+
+#### シナリオ 1: コスト最適化
+
+大部分のリクエストに安価なプロバイダーを、複雑なタスクにプレミアムプロバイダーを使用：
+
+```json
+{
+  "providers": [
+    {
+      "name": "budget",
+      "baseUrl": "https://api.budget-llm.com/v1/messages",
+      "apiKey": "key1",
+      "format": "anthropic"
+    },
+    {
+      "name": "premium",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "apiKey": "key2",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "budget,model-haiku",
+    "sonnet": [
+      "budget,model-sonnet",
+      "premium,claude-sonnet-4"
+    ],
+    "opus": {
+      "targets": [
+        { "provider": "budget", "model": "model-opus", "weight": 80 },
+        { "provider": "premium", "model": "claude-opus-4-5-20251101", "weight": 20 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+#### シナリオ 2: フェイルオーバー設定
+
+プライマリプロバイダーとバックアップ：
+
+```json
+{
+  "router": {
+    "sonnet": [
+      "primary,claude-sonnet-4",
+      "backup,claude-sonnet-4"
+    ]
+  }
+}
+```
+
+リクエストはプライマリとバックアッププロバイダー間で交互に送信されます。
+
+#### シナリオ 3: マルチクラウド分散
+
+複数のクラウドプロバイダー間で分散：
+
+```json
+{
+  "router": {
+    "sonnet": {
+      "targets": [
+        { "provider": "aws", "model": "claude-sonnet-4", "weight": 40 },
+        { "provider": "gcp", "model": "claude-sonnet-4", "weight": 35 },
+        { "provider": "azure", "model": "claude-sonnet-4", "weight": 25 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+40% を AWS、35% を GCP、25% を Azure に分散。
+
 ## CLI コマンド
 
 ```bash
@@ -304,8 +427,20 @@ cat ~/.claude-code-proxy/logs/requests.jsonl | jq 'select(.type == "response")'
 - **チャンクごとのログなし**: ストリームングレスホンスでチャンク単位のオーバーヘッドを回避
 - **効率的メモリ使用**: 約 100KB バッファ制限
 - **グレースフルシャットダウン**: 終了前にログフラッシュ
+- **並行性安全**: スレッドセーフな負荷分散と分離されたリクエストコンテキスト
 
 agent-swarm シナリオで 100+ 並発リクエストを処理可能。
+
+### 並行性安全性
+
+負荷分散は高並行ユースケースで安全です：
+
+- ✅ **複数ターミナル**: 並行ターミナルセッション間での干渉なし
+- ✅ **複数タブセッション**: クロスセッション汚染なし
+- ✅ **複数サブエージェント**: 変更はリクエストごとに分離
+- ✅ **スレッドセーフカウンター**: 負荷分散器が正確な分散を維持
+
+各リクエストは分離されたコンテキストオブジェクトを受け取り、プロバイダー設定は不変のままです。
 
 ## トラブルシューティング
 

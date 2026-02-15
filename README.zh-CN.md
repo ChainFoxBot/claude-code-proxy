@@ -7,11 +7,13 @@
 ## 功能特性
 
 - **模型路由**：将 Claude 模型（haiku、sonnet、opus）映射到任意提供商的模型
+- **负载均衡**：通过加权轮询在多个提供商之间分配请求
 - **多提供商**：同时支持多个 LLM 提供商
 - **格式转换**：自动在 Anthropic 和 OpenAI 格式之间转换
 - **热重载**：配置更改自动应用，无需重启
 - **性能优化**：异步批量日志记录，最小化开销
 - **自动启动**：Shell 集成，静默后台启动
+- **并发安全**：针对高并发场景的线程安全设计
 
 ## 安装方式
 
@@ -155,9 +157,7 @@ bun start
 
 #### `router`
 
-将 Claude 模型名映射到提供商端点。
-
-格式：`"<claude-model>": "<provider-name>,<actual-model-name>"`
+将 Claude 模型名映射到提供商端点。支持三种配置格式：
 
 | 参数 | 说明 | 示例 |
 |------|------|------|
@@ -166,13 +166,17 @@ bun start
 | `opus` | 高性能模型路由 | `"openrouter,anthropic/claude-opus-4.5"` |
 | `image` | 图像生成模型路由 | `"zp,glm-4.7"` |
 
-### 路由语法
+### 路由配置格式
+
+#### 格式 1：单提供商（简单）
 
 ```json
 "router": {
-  "haiku": "provider-name,model-name"
+  "sonnet": "provider-name,model-name"
 }
 ```
+
+所有请求发送到单个提供商。
 
 **组成部分：**
 - **提供商名称**：必须匹配提供商的 `name` 字段
@@ -181,6 +185,48 @@ bun start
 **示例：**
 - `"zp,glm-4.7"`：使用 `zp` 提供商，请求 `glm-4.7` 模型
 - `"openrouter,anthropic/claude-opus-4.5"`：使用 OpenRouter，请求 Claude Opus 4.5
+
+#### 格式 2：多提供商（轮询）
+
+```json
+"router": {
+  "sonnet": [
+    "provider-a,model-a",
+    "provider-b,model-b"
+  ]
+}
+```
+
+请求按轮询方式均匀分配到各提供商。适用于：
+- 负载分配
+- 成本优化
+- 故障转移场景
+
+#### 格式 3：加权分配（高级）
+
+```json
+"router": {
+  "opus": {
+    "targets": [
+      { "provider": "provider-a", "model": "model-a", "weight": 70 },
+      { "provider": "provider-b", "model": "model-b", "weight": 30 }
+    ],
+    "strategy": "weighted-round-robin"
+  }
+}
+```
+
+根据权重分配请求（70% 到 provider-a，30% 到 provider-b）。
+
+### 负载均衡策略
+
+| 策略 | 说明 | 使用场景 |
+|------|------|----------|
+| `round-robin` | 按顺序轮询目标 | 等量分配，提供商性能相近 |
+| `weighted-round-robin` | 根据权重分配 | 不等量分配，提供商容量不同 |
+| `random` | 随机选择 | 简单分配，无需跟踪状态 |
+
+**默认值：** 如未指定，使用 `round-robin`。
 
 ### 环境变量覆盖
 
@@ -245,6 +291,83 @@ export ANTHROPIC_BASE_URL="http://127.0.0.1:3456"
 }
 ```
 
+### 负载均衡示例
+
+#### 场景 1：成本优化
+
+大部分请求使用便宜的提供商，复杂任务使用高级提供商：
+
+```json
+{
+  "providers": [
+    {
+      "name": "budget",
+      "baseUrl": "https://api.budget-llm.com/v1/messages",
+      "apiKey": "key1",
+      "format": "anthropic"
+    },
+    {
+      "name": "premium",
+      "baseUrl": "https://api.anthropic.com/v1/messages",
+      "apiKey": "key2",
+      "format": "anthropic"
+    }
+  ],
+  "router": {
+    "haiku": "budget,model-haiku",
+    "sonnet": [
+      "budget,model-sonnet",
+      "premium,claude-sonnet-4"
+    ],
+    "opus": {
+      "targets": [
+        { "provider": "budget", "model": "model-opus", "weight": 80 },
+        { "provider": "premium", "model": "claude-opus-4-5-20251101", "weight": 20 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+#### 场景 2：故障转移设置
+
+主提供商配备份：
+
+```json
+{
+  "router": {
+    "sonnet": [
+      "primary,claude-sonnet-4",
+      "backup,claude-sonnet-4"
+    ]
+  }
+}
+```
+
+请求在主提供商和备份提供商之间交替。
+
+#### 场景 3：多云分配
+
+跨多个云提供商分配：
+
+```json
+{
+  "router": {
+    "sonnet": {
+      "targets": [
+        { "provider": "aws", "model": "claude-sonnet-4", "weight": 40 },
+        { "provider": "gcp", "model": "claude-sonnet-4", "weight": 35 },
+        { "provider": "azure", "model": "claude-sonnet-4", "weight": 25 }
+      ],
+      "strategy": "weighted-round-robin"
+    }
+  }
+}
+```
+
+40% 到 AWS，35% 到 GCP，25% 到 Azure。
+
 ## CLI 命令
 
 ```bash
@@ -304,8 +427,20 @@ cat ~/.claude-code-proxy/logs/requests.jsonl | jq 'select(.type == "response")'
 - **无 per-chunk 日志**：流式响应绕过 per-chunk 开销
 - **高效内存使用**：约 100KB 缓冲区限制
 - **优雅关闭**：退出前刷新日志
+- **并发安全**：线程安全的负载均衡与隔离的请求上下文
 
 可处理来自 agent-swarm 场景的 100+ 并发请求。
+
+### 并发安全
+
+负载均衡对高并发场景是安全的：
+
+- ✅ **多终端**：并发终端会话之间无干扰
+- ✅ **多标签页会话**：无跨会话污染
+- ✅ **多子代理**：变更按请求隔离
+- ✅ **线程安全计数器**：负载均衡器维护准确的分配
+
+每个请求接收隔离的上下文对象，提供商配置保持不可变。
 
 ## 故障排除
 
