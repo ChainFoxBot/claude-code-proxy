@@ -116,14 +116,18 @@ export function convertAnthropicToOpenAI(anthropic: AnthropicRequest): OpenAIReq
     });
   }
 
-  return {
+  const result: OpenAIRequest = {
     model: anthropic.model,
     messages,
-    max_tokens: anthropic.max_tokens,
-    temperature: anthropic.temperature,
-    top_p: anthropic.top_p,
-    stream: anthropic.stream,
   };
+
+  // Only add parameters if they have defined values
+  if (anthropic.max_tokens !== undefined) result.max_tokens = anthropic.max_tokens;
+  if (anthropic.temperature !== undefined) result.temperature = anthropic.temperature;
+  if (anthropic.top_p !== undefined) result.top_p = anthropic.top_p;
+  if (anthropic.stream !== undefined) result.stream = anthropic.stream;
+
+  return result;
 }
 
 /**

@@ -142,6 +142,7 @@ app.post('/v1/messages', async (c) => {
 
   try {
     const body = await c.req.json();
+    // Convert headers once and reuse
     const headers = Object.fromEntries(c.req.raw.headers);
 
     // Strip thinking blocks to avoid signature mismatch when switching models
@@ -171,9 +172,7 @@ app.post('/v1/messages', async (c) => {
       originalRequest: processedBody,
       provider,
       modelName,
-      originalHeaders: format === 'pass-through'
-        ? Object.fromEntries(c.req.raw.headers)
-        : undefined
+      originalHeaders: format === 'pass-through' ? headers : undefined
     };
 
     // Use adapter to prepare request and headers (stateless operations)

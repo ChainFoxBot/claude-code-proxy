@@ -15,9 +15,10 @@ export class OpenAIAdapter extends BaseAdapter {
       model: modelName
     });
 
-    // 2. Merge provider params if configured
-    if (provider.params) {
-      request = this.mergeParams(request, provider.params);
+    // 2. Merge model-specific params if configured
+    const modelParams = this.getModelParams(provider, modelName);
+    if (modelParams) {
+      request = this.mergeParams(request, modelParams);
     }
 
     return request;

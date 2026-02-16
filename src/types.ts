@@ -13,7 +13,7 @@ export interface ProviderConfig {
   baseUrl: string;
   apiKey: string;
   format?: string; // "anthropic" | "openai" | undefined (pass-through)
-  params?: ProviderParams; // Provider-specific parameters
+  models?: Record<string, ProviderParams>; // Model-specific parameters, keyed by model name
 }
 
 // Load Balancing Types

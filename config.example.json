@@ -14,10 +14,11 @@
       "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
       "apiKey": "your-openrouter-key-here",
       "format": "openai",
-      "params": {
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "max_tokens": 4096
+      "models": {
+        "anthropic/claude-sonnet-4": {
+          "temperature": 0.7,
+          "max_tokens": 4096
+        }
       }
     },
     {
@@ -25,9 +26,14 @@
       "baseUrl": "https://api.z.ai/api/anthropic/v1/messages",
       "apiKey": "your-zpai-key-here",
       "format": "anthropic",
-      "params": {
-        "temperature": 0.7,
-        "max_tokens": 8192
+      "models": {
+        "glm-4.7": {
+          "temperature": 0.7,
+          "max_tokens": 8192
+        },
+        "glm-5": {
+          "temperature": 0.5
+        }
       }
     },
     {

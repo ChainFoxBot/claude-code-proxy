@@ -8,12 +8,21 @@ export class PassThroughAdapter extends BaseAdapter {
   prepareRequest(context: AdapterContext): any {
     const { originalRequest, provider, modelName } = context;
 
-    // Start with original request and update model name
-    let request = { ...originalRequest, model: modelName };
+    // Filter out undefined values from original request
+    const filteredRequest: any = {};
+    for (const key of Object.keys(originalRequest)) {
+      if (originalRequest[key] !== undefined) {
+        filteredRequest[key] = originalRequest[key];
+      }
+    }
 
-    // Merge provider params if configured
-    if (provider.params) {
-      request = this.mergeParams(request, provider.params);
+    // Set model name
+    let request = { ...filteredRequest, model: modelName };
+
+    // Merge model-specific params if configured
+    const modelParams = this.getModelParams(provider, modelName);
+    if (modelParams) {
+      request = this.mergeParams(request, modelParams);
     }
 
     return request;

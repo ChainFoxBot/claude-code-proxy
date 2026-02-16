@@ -40,9 +40,11 @@ export class LoadBalancer {
    * Round-robin strategy: cycle through targets in order
    */
   private roundRobin(targets: RouteTarget[], routeKey: string): RouteTarget {
-    const count = this.counters.get(routeKey) || 0;
+    let count = this.counters.get(routeKey) || 0;
     const index = count % targets.length;
-    this.counters.set(routeKey, count + 1);
+    // Reset at 1M to prevent overflow and keep numbers manageable
+    count = count >= 1000000 ? 0 : count + 1;
+    this.counters.set(routeKey, count);
     return targets[index];
   }
 
@@ -68,8 +70,10 @@ export class LoadBalancer {
     );
 
     // Get current counter and increment
-    const count = this.counters.get(routeKey) || 0;
-    this.counters.set(routeKey, count + 1);
+    let count = this.counters.get(routeKey) || 0;
+    // Reset at 1M to prevent overflow and keep numbers manageable
+    count = count >= 1000000 ? 0 : count + 1;
+    this.counters.set(routeKey, count);
 
     // Find target based on cumulative weight
     let cumulative = 0;
