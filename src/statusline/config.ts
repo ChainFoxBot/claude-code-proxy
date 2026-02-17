@@ -62,7 +62,7 @@ export function getContextWindowSize(providerModel: string): number | null {
   const [providerName, modelName] = parts;
 
   // 1. Check provider.info[model].contextRange (highest priority)
-  const provider = config.providers.find(p => p.name === providerName);
+  const provider = config.providers?.find(p => p.name === providerName);
   if (provider?.info?.[modelName]?.contextRange) {
     const size = parseContextRange(provider.info[modelName].contextRange!);
     if (size !== null) {
@@ -72,7 +72,7 @@ export function getContextWindowSize(providerModel: string): number | null {
 
   // 2. Check statusline.contextWindows (fallback)
   const statuslineConfig = loadStatuslineConfig();
-  if (statuslineConfig.contextWindows[providerModel]?.contextWindowSize) {
+  if (statuslineConfig.contextWindows?.[providerModel]?.contextWindowSize) {
     return statuslineConfig.contextWindows[providerModel].contextWindowSize;
   }
 
@@ -118,7 +118,7 @@ export async function checkWeeklyLimitAsync(
   const [providerName, modelName] = parts;
 
   // Get weekly limit from provider.info[model].weeklyLimit
-  const provider = config.providers.find(p => p.name === providerName);
+  const provider = config.providers?.find(p => p.name === providerName);
   const limit = provider?.info?.[modelName]?.weeklyLimit;
 
   if (!limit || limit.enabled === false) {

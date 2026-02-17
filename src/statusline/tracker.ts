@@ -1,6 +1,7 @@
 /**
  * Statusline token tracker with SQLite backend
  * Thread-safe via SQLite WAL mode and transactions
+ * Uses singleton DB connection for performance
  */
 
 import { Database } from 'bun:sqlite';
@@ -8,27 +9,91 @@ import { join } from 'path';
 import { mkdirSync } from 'fs';
 import type { TokenUsage, SessionTotals, ProviderModelUsage } from './types.js';
 
+// Singleton DB connection (shared across all tracker instances)
+let sharedDb: Database | null = null;
+let dbInitialized = false;
+
+function getSharedDb(): Database {
+  if (!sharedDb) {
+    const dataDir = join(process.env.HOME || '~', '.claude-code-proxy', 'data');
+    mkdirSync(dataDir, { recursive: true });
+
+    const dbPath = join(dataDir, 'statusline.db');
+    sharedDb = new Database(dbPath);
+
+    // Enable WAL mode for better concurrent performance
+    sharedDb.run('PRAGMA journal_mode = WAL');
+    sharedDb.run('PRAGMA busy_timeout = 5000');
+  }
+  return sharedDb;
+}
+
+// Initialize schema once
+function ensureSchema(db: Database): void {
+  if (dbInitialized) return;
+
+  // Session costs table (per-session, reset on context clear)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS session_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      provider_model TEXT NOT NULL,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_write_tokens INTEGER DEFAULT 0,
+      request_count INTEGER DEFAULT 0,
+      last_updated TEXT NOT NULL,
+      UNIQUE(session_id, provider_model)
+    )
+  `);
+
+  // Weekly costs table (aggregated, with week boundary)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS weekly_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_key TEXT NOT NULL,
+      provider_model TEXT NOT NULL,
+      input_tokens INTEGER DEFAULT 0,
+      output_tokens INTEGER DEFAULT 0,
+      cache_read_tokens INTEGER DEFAULT 0,
+      cache_write_tokens INTEGER DEFAULT 0,
+      request_count INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      last_updated TEXT NOT NULL,
+      UNIQUE(week_key, provider_model)
+    )
+  `);
+
+  // Metadata table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  // Create indexes
+  db.run('CREATE INDEX IF NOT EXISTS idx_session_costs_session ON session_costs(session_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_weekly_costs_week ON weekly_costs(week_key)');
+
+  dbInitialized = true;
+}
+
 export class StatuslineTracker {
   private db: Database;
   private _sessionId: string;
   private currentWeek: string;
 
   constructor(sessionId: string) {
-    // Get data directory
-    const dataDir = join(process.env.HOME || '~', '.claude-code-proxy', 'data');
-    mkdirSync(dataDir, { recursive: true });
-
-    const dbPath = join(dataDir, 'statusline.db');
-    this.db = new Database(dbPath);
-
-    // Enable WAL mode for better concurrent performance
-    this.db.run('PRAGMA journal_mode = WAL');
-    this.db.run('PRAGMA busy_timeout = 5000'); // Wait up to 5s for locks
+    // Use shared DB connection
+    this.db = getSharedDb();
+    ensureSchema(this.db);
 
     this._sessionId = sessionId;
     this.currentWeek = this.getCurrentWeek();
 
-    this.initializeSchema();
     this.checkWeekReset();
   }
 
@@ -50,68 +115,13 @@ export class StatuslineTracker {
     const result = this.db.query<{ week: string }, []>(
       "SELECT strftime('%Y_W%W', 'now') as week"
     ).get();
-    return result!.week;
-  }
-
-  private initializeSchema(): void {
-    // Session costs table (per-session, reset on context clear)
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS session_costs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        provider_model TEXT NOT NULL,
-        input_tokens INTEGER DEFAULT 0,
-        output_tokens INTEGER DEFAULT 0,
-        cache_read_tokens INTEGER DEFAULT 0,
-        cache_write_tokens INTEGER DEFAULT 0,
-        request_count INTEGER DEFAULT 0,
-        last_updated TEXT NOT NULL,
-        UNIQUE(session_id, provider_model)
-      )
-    `);
-
-    // Weekly costs table (aggregated, with week boundary)
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS weekly_costs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        week_key TEXT NOT NULL,
-        provider_model TEXT NOT NULL,
-        input_tokens INTEGER DEFAULT 0,
-        output_tokens INTEGER DEFAULT 0,
-        cache_read_tokens INTEGER DEFAULT 0,
-        cache_write_tokens INTEGER DEFAULT 0,
-        request_count INTEGER DEFAULT 0,
-        created_at TEXT NOT NULL,
-        last_updated TEXT NOT NULL,
-        UNIQUE(week_key, provider_model)
-      )
-    `);
-
-    // Metadata table
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS metadata (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      )
-    `);
-
-    // Tool usage table (per-session)
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS tool_usage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        tool_name TEXT NOT NULL,
-        count INTEGER DEFAULT 0,
-        last_updated TEXT NOT NULL,
-        UNIQUE(session_id, tool_name)
-      )
-    `);
-
-    // Create indexes
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_session_costs_session ON session_costs(session_id)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_weekly_costs_week ON weekly_costs(week_key)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_tool_usage_session ON tool_usage(session_id)');
+    // Fallback to current date if query fails
+    if (!result?.week) {
+      const now = new Date();
+      const weekNum = Math.ceil((((now.getTime() - new Date(now.getFullYear(), 0, 1).getTime()) / 86400000) + 1) / 7);
+      return `${now.getFullYear()}_W${String(weekNum).padStart(2, '0')}`;
+    }
+    return result.week;
   }
 
   private checkWeekReset(): void {
@@ -305,70 +315,6 @@ export class StatuslineTracker {
   }
 
   /**
-   * Record tool usage - increment count for a specific tool
-   */
-  recordToolUsage(toolName: string): void {
-    const now = new Date().toISOString();
-
-    this.db.run(`
-      INSERT INTO tool_usage (session_id, tool_name, count, last_updated)
-      VALUES (?, ?, 1, ?)
-      ON CONFLICT(session_id, tool_name) DO UPDATE SET
-        count = count + 1,
-        last_updated = excluded.last_updated
-    `, [this._sessionId, toolName, now]);
-  }
-
-  /**
-   * Get tool usage counts for current session
-   */
-  getToolUsage(): Record<string, number> {
-    const results = this.db.query<{ tool_name: string; count: number }, [string]>(`
-      SELECT tool_name, count
-      FROM tool_usage
-      WHERE session_id = ?
-      ORDER BY count DESC
-    `).all(this._sessionId);
-
-    const usage: Record<string, number> = {};
-    for (const row of results) {
-      usage[row.tool_name] = row.count;
-    }
-
-    return usage;
-  }
-
-  /**
-   * Format tool usage for display
-   */
-  formatToolUsage(): string {
-    const usage = this.getToolUsage();
-
-    if (Object.keys(usage).length === 0) {
-      return '';
-    }
-
-    const parts: string[] = [];
-    const toolOrder = ['Bash', 'Edit', 'Write', 'Read', 'Glob', 'Grep', 'Task'];
-
-    // Show tools in preferred order
-    for (const tool of toolOrder) {
-      if (usage[tool]) {
-        parts.push(`${tool} x${usage[tool]}`);
-      }
-    }
-
-    // Show other tools
-    for (const [tool, count] of Object.entries(usage)) {
-      if (!toolOrder.includes(tool)) {
-        parts.push(`${tool} x${count}`);
-      }
-    }
-
-    return parts.join(' | ');
-  }
-
-  /**
    * Get weekly limit warning flag
    * Returns: { percentage: number, exceeded: boolean } | null
    */
@@ -385,6 +331,8 @@ export class StatuslineTracker {
     try {
       return JSON.parse(result.value);
     } catch {
+      // Corrupted JSON - delete the entry so future writes can succeed
+      this.db.run('DELETE FROM metadata WHERE key = ?', [key]);
       return null;
     }
   }
@@ -410,7 +358,23 @@ export class StatuslineTracker {
     this.db.run('DELETE FROM metadata WHERE key = ?', [key]);
   }
 
+  /**
+   * Close the shared DB connection (call on process exit)
+   * Individual tracker instances don't need to call this
+   */
+  static closeShared(): void {
+    if (sharedDb) {
+      sharedDb.close();
+      sharedDb = null;
+      dbInitialized = false;
+    }
+  }
+
+  /**
+   * @deprecated Use StatuslineTracker.closeShared() instead
+   * Individual instances share a connection, so close() is a no-op
+   */
   close(): void {
-    this.db.close();
+    // No-op: shared connection is managed by closeShared()
   }
 }

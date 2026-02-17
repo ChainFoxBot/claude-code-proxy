@@ -25,7 +25,6 @@ const colors = {
   yellow: '\x1b[1;38;2;255;215;0m',     // #ffd700 - yellow
   red: '\x1b[1;38;2;255;60;60m',        // #ff3c3c - vivid red
   separator: '\x1b[1;38;2;239;240;235m', // #eff0eb - light gray for separators
-  tool: '\x1b[1;38;2;255;150;30m',      // #ff961e - vivid orange
 };
 
 /**
@@ -52,12 +51,19 @@ async function readStdin(): Promise<StdinData | null> {
       return null;
     }
     return JSON.parse(raw) as StdinData;
-  } catch {
+  } catch (error) {
+    // Log parse errors for debugging (protocol mismatch detection)
+    if (process.env.STATUSLINE_DEBUG === 'true') {
+      console.error('Statusline stdin parse error:', error);
+    }
     return null;
   }
 }
 
 function formatTokens(tokens: number): string {
+  if (tokens >= 1000000) {
+    return `${(tokens / 1000000).toFixed(2)}M`;
+  }
   if (tokens >= 1000) {
     return `${Math.round(tokens / 1000)}k`;
   }
@@ -229,23 +235,21 @@ async function main() {
       parts.push(colorize(folderName, colors.folder));
     }
 
-    // 5. Tool usage statistics
-    const toolUsage = tracker.formatToolUsage();
-    if (toolUsage) {
-      parts.push(colorize(toolUsage, colors.tool));
-    }
-
-    // 6. Weekly warning (if any, from previous check)
+    // 5. Weekly warning (if any, from previous check)
     if (weeklyWarning) {
-      parts.push(`⚠️ ${weeklyWarning}`);
+      parts.push(weeklyWarning);
     }
 
     const sep = colorize(' | ', colors.separator);
     console.log(parts.join(sep));
 
-    tracker.close();
+    // Note: Don't close tracker here - the async weekly limit check
+    // may still be writing to the database. Let process exit handle cleanup.
   } catch (error) {
-    // Silent fail - don't break Claude Code
+    // Log unexpected errors for debugging, but don't break Claude Code
+    if (process.env.STATUSLINE_DEBUG === 'true') {
+      console.error('Statusline error:', error);
+    }
     console.log('');
   }
 }
