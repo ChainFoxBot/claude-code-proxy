@@ -377,6 +377,135 @@ ccp logs        # Tail server logs in real-time
 ccp help        # Show help message
 ```
 
+## Statusline
+
+Real-time token tracking and context window monitoring in Claude Code's status bar.
+
+### Example Output
+
+```
+[claude-sonnet-4-5] | 18% (实际 29%) | 37k tokens | main ✓ | ⚠️ 85% of weekly limit
+```
+
+### Features
+
+- **Model name**: Current Claude model
+- **Context usage**: Claude's % + actual provider % (if different)
+- **Token count**: Session token consumption
+- **Git status**: Branch name with clean/dirty indicator
+- **Weekly limit warning**: Shows when approaching provider limits (≥70%)
+
+### Configuration
+
+#### 1. Add Model Info to Providers
+
+Edit `~/.claude-code-proxy/config.json`:
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
+      "apiKey": "your-key",
+      "format": "openai",
+      "info": {
+        "anthropic/claude-sonnet-4": {
+          "contextRange": "200K",
+          "weeklyLimit": {
+            "maxInputTokens": 500000,
+            "maxOutputTokens": 200000,
+            "enabled": true
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Info fields:**
+- `contextRange`: Model's context window (e.g., `"200K"`, `"128K"`, `"1M"`)
+- `weeklyLimit`: Optional weekly token limits
+  - `maxTotalTokens`: Total token limit
+  - `maxInputTokens`: Input token limit
+  - `maxOutputTokens`: Output token limit
+  - `enabled`: Enable/disable tracking (default: true)
+
+#### 2. Enable Statusline in config.json
+
+```json
+{
+  "statusline": {
+    "enabled": true,
+    "sessionRetentionHours": 24
+  }
+}
+```
+
+#### 3. Configure Claude Code
+
+Add to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c '~/.bun/bin/bun /path/to/cc-proxy/src/statusline/index.ts'"
+  }
+}
+```
+
+**Get the correct path:**
+```bash
+echo "bash -c '\"$(which bun)\" \"$(pwd)/src/statusline/index.ts\"'"
+```
+
+#### 4. Restart the proxy
+
+```bash
+ccp restart
+```
+
+### CLI Commands
+
+```bash
+# View current status
+ccp statusline
+
+# Test output
+echo '{"model":{"display_name":"test"},"context_window":{"used_percentage":50}}' | ccp statusline
+
+# View detailed statistics
+curl http://127.0.0.1:3457/statusline
+
+# Reset session tokens
+curl -X POST http://127.0.0.1:3457/session/reset
+```
+
+### Common Model Context Windows
+
+```json
+{
+  "anthropic/claude-opus-4-5-20251101": { "contextRange": "200K" },
+  "anthropic/claude-sonnet-4-5-20250929": { "contextRange": "200K" },
+  "anthropic/claude-haiku-4-5-20251001": { "contextRange": "200K" },
+  "gpt-4o": { "contextRange": "128K" },
+  "gpt-4-turbo": { "contextRange": "128K" },
+  "glm-4": { "contextRange": "128K" },
+  "glm-5": { "contextRange": "200K" },
+  "deepseek-chat": { "contextRange": "64K" }
+}
+```
+
+### Data Storage
+
+- **Database**: `~/.claude-code-proxy/data/statusline.db` (SQLite)
+- **Session data**: Auto-cleaned after 24 hours
+- **Weekly stats**: Auto-reset on ISO week boundary
+
+For detailed documentation, see [STATUSLINE.md](STATUSLINE.md).
+
 ## Claude Code Integration
 
 Set environment variables to use cc-proxy with Claude Code:

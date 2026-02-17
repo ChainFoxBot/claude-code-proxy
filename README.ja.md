@@ -381,6 +381,135 @@ ccp logs        # サーバーログをリアルタイム表示
 ccp help        # ヘルプを表示
 ```
 
+## Statusline
+
+Claude Code のステータスバーでリアルタイムのトークン追跡とコンテキストウィンドウ監視。
+
+### 出力例
+
+```
+[claude-sonnet-4-5] | 18% (実際 29%) | 37k tokens | main ✓ | ⚠️ 85% 週制限
+```
+
+### 機能
+
+- **モデル名**: 現在の Claude モデル
+- **コンテキスト使用率**: Claude の % + 実際のプロバイダーの %（異なる場合）
+- **トークン数**: セッショントークン消費量
+- **Git ステータス**: ブランチ名とクリーン/ダーティインジケーター
+- **週制限警告**: プロバイダー制限に近づくと表示（≥70%）
+
+### 設定
+
+#### 1. プロバイダーにモデル情報を追加
+
+`~/.claude-code-proxy/config.json` を編集：
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
+      "apiKey": "your-key",
+      "format": "openai",
+      "info": {
+        "anthropic/claude-sonnet-4": {
+          "contextRange": "200K",
+          "weeklyLimit": {
+            "maxInputTokens": 500000,
+            "maxOutputTokens": 200000,
+            "enabled": true
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Info フィールド：**
+- `contextRange`: モデルのコンテキストウィンドウサイズ（例：`"200K"`、`"128K"`、`"1M"`）
+- `weeklyLimit`: オプションの週次トークン制限
+  - `maxTotalTokens`: 総トークン制限
+  - `maxInputTokens`: 入力トークン制限
+  - `maxOutputTokens`: 出力トークン制限
+  - `enabled`: 追跡の有効/無効（デフォルト：true）
+
+#### 2. config.json で Statusline を有効化
+
+```json
+{
+  "statusline": {
+    "enabled": true,
+    "sessionRetentionHours": 24
+  }
+}
+```
+
+#### 3. Claude Code を設定
+
+`~/.claude/settings.json` に追加：
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c '~/.bun/bin/bun /path/to/cc-proxy/src/statusline/index.ts'"
+  }
+}
+```
+
+**正しいパスを取得：**
+```bash
+echo "bash -c '\"$(which bun)\" \"$(pwd)/src/statusline/index.ts\"'"
+```
+
+#### 4. プロキシを再起動
+
+```bash
+ccp restart
+```
+
+### CLI コマンド
+
+```bash
+# 現在のステータスを表示
+ccp statusline
+
+# 出力をテスト
+echo '{"model":{"display_name":"test"},"context_window":{"used_percentage":50}}' | ccp statusline
+
+# 詳細統計を表示
+curl http://127.0.0.1:3457/statusline
+
+# セッショントークンをリセット
+curl -X POST http://127.0.0.1:3457/session/reset
+```
+
+### 一般的なモデルのコンテキストウィンドウ設定
+
+```json
+{
+  "anthropic/claude-opus-4-5-20251101": { "contextRange": "200K" },
+  "anthropic/claude-sonnet-4-5-20250929": { "contextRange": "200K" },
+  "anthropic/claude-haiku-4-5-20251001": { "contextRange": "200K" },
+  "gpt-4o": { "contextRange": "128K" },
+  "gpt-4-turbo": { "contextRange": "128K" },
+  "glm-4": { "contextRange": "128K" },
+  "glm-5": { "contextRange": "200K" },
+  "deepseek-chat": { "contextRange": "64K" }
+}
+```
+
+### データ保存
+
+- **データベース**: `~/.claude-code-proxy/data/statusline.db` (SQLite)
+- **セッションデータ**: 24 時間後に自動クリーンアップ
+- **週次統計**: ISO 週境界で自動リセット
+
+詳細なドキュメントは [STATUSLINE.md](STATUSLINE.md) を参照してください。
+
 ## Claude Code 連携
 
 Claude Code で cc-proxy を使用するため、環境変数を設定：

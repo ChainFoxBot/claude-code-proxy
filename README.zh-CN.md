@@ -381,6 +381,135 @@ ccp logs        # 实时查看服务器日志
 ccp help        # 显示帮助信息
 ```
 
+## Statusline
+
+在 Claude Code 状态栏中实时追踪 token 使用和上下文窗口监控。
+
+### 示例输出
+
+```
+[claude-sonnet-4-5] | 18% (实际 29%) | 37k tokens | main ✓ | ⚠️ 85% 周限额
+```
+
+### 功能特性
+
+- **模型名称**：当前使用的 Claude 模型
+- **上下文占比**：Claude 显示的百分比 + 实际提供商的百分比（如果不同）
+- **Token 统计**：会话 token 消耗量
+- **Git 状态**：分支名称和干净/有变更指示器
+- **周限额警告**：接近提供商限额时显示（≥70%）
+
+### 配置
+
+#### 1. 在提供商中添加模型信息
+
+编辑 `~/.claude-code-proxy/config.json`：
+
+```json
+{
+  "providers": [
+    {
+      "name": "openrouter",
+      "baseUrl": "https://openrouter.ai/api/v1/chat/completions",
+      "apiKey": "your-key",
+      "format": "openai",
+      "info": {
+        "anthropic/claude-sonnet-4": {
+          "contextRange": "200K",
+          "weeklyLimit": {
+            "maxInputTokens": 500000,
+            "maxOutputTokens": 200000,
+            "enabled": true
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Info 字段说明：**
+- `contextRange`：模型的上下文窗口大小（如 `"200K"`、`"128K"`、`"1M"`）
+- `weeklyLimit`：可选的周限额追踪
+  - `maxTotalTokens`：总 token 限额
+  - `maxInputTokens`：输入 token 限额
+  - `maxOutputTokens`：输出 token 限额
+  - `enabled`：启用/禁用追踪（默认：true）
+
+#### 2. 在 config.json 中启用 Statusline
+
+```json
+{
+  "statusline": {
+    "enabled": true,
+    "sessionRetentionHours": 24
+  }
+}
+```
+
+#### 3. 配置 Claude Code
+
+添加到 `~/.claude/settings.json`：
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c '~/.bun/bin/bun /path/to/cc-proxy/src/statusline/index.ts'"
+  }
+}
+```
+
+**获取正确路径：**
+```bash
+echo "bash -c '\"$(which bun)\" \"$(pwd)/src/statusline/index.ts\"'"
+```
+
+#### 4. 重启代理
+
+```bash
+ccp restart
+```
+
+### CLI 命令
+
+```bash
+# 查看当前状态
+ccp statusline
+
+# 测试输出
+echo '{"model":{"display_name":"test"},"context_window":{"used_percentage":50}}' | ccp statusline
+
+# 查看详细统计
+curl http://127.0.0.1:3457/statusline
+
+# 重置会话 tokens
+curl -X POST http://127.0.0.1:3457/session/reset
+```
+
+### 常见模型上下文窗口配置
+
+```json
+{
+  "anthropic/claude-opus-4-5-20251101": { "contextRange": "200K" },
+  "anthropic/claude-sonnet-4-5-20250929": { "contextRange": "200K" },
+  "anthropic/claude-haiku-4-5-20251001": { "contextRange": "200K" },
+  "gpt-4o": { "contextRange": "128K" },
+  "gpt-4-turbo": { "contextRange": "128K" },
+  "glm-4": { "contextRange": "128K" },
+  "glm-5": { "contextRange": "200K" },
+  "deepseek-chat": { "contextRange": "64K" }
+}
+```
+
+### 数据存储
+
+- **数据库**：`~/.claude-code-proxy/data/statusline.db` (SQLite)
+- **会话数据**：24 小时后自动清理
+- **周统计**：在 ISO 周边界自动重置
+
+详细文档请参阅 [STATUSLINE.md](STATUSLINE.md)。
+
 ## Claude Code 集成
 
 设置环境变量以在 Claude Code 中使用 cc-proxy：
