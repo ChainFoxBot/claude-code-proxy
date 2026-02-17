@@ -8,12 +8,25 @@ export interface ProviderParams {
   [key: string]: any; // Support any provider-specific parameters
 }
 
+export interface WeeklyLimit {
+  maxInputTokens?: number;
+  maxOutputTokens?: number;
+  maxTotalTokens?: number;
+  enabled?: boolean; // default: true
+}
+
+export interface ModelInfo {
+  contextRange?: string; // e.g., "200K", "128k", "1M"
+  weeklyLimit?: WeeklyLimit;
+}
+
 export interface ProviderConfig {
   name: string;
   baseUrl: string;
   apiKey: string;
   format?: string; // "anthropic" | "openai" | undefined (pass-through)
   models?: Record<string, ProviderParams>; // Model-specific parameters, keyed by model name
+  info?: Record<string, ModelInfo>; // Model information (context window, etc.)
 }
 
 // Load Balancing Types
@@ -52,11 +65,26 @@ export interface ServerConfig {
   host: string;
 }
 
+export interface StatuslineConfig {
+  enabled: boolean;
+  sessionRetentionHours: number;
+  weeklyLimits: Record<string, {
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+    maxTotalTokens?: number;
+    enabled: boolean;
+  }>;
+  contextWindows: Record<string, {
+    contextWindowSize: number;
+  }>;
+}
+
 export interface Config {
   server: ServerConfig;
   logging: LoggingConfig;
   providers: ProviderConfig[];
   router: RouterConfig;
+  statusline?: StatuslineConfig;
 }
 
 // Log entry types

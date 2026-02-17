@@ -14,6 +14,7 @@ Lightweight LLM proxy server for Claude Code - route Anthropic API requests to a
 - **Performance Optimized**: Async batch logging for minimal overhead
 - **Auto-Start**: Shell integration for silent background startup
 - **Concurrency Safe**: Thread-safe design for high-concurrency scenarios
+- **Statusline**: Real-time token tracking and context window monitoring (see [STATUSLINE.md](STATUSLINE.md))
 
 ## Installation
 

@@ -69,6 +69,17 @@ EOF
 
 logs() { tail -f "$CCP_LOG" 2>/dev/null || echo "No logs"; }
 
+statusline() {
+    # Run statusline script with optional stdin data for testing
+    if [ -t 0 ]; then
+        # No stdin - just show current stats
+        bun run "$CCP_DIR/src/statusline/index.ts"
+    else
+        # Has stdin - pipe through
+        bun run "$CCP_DIR/src/statusline/index.ts"
+    fi
+}
+
 config() {
     CCP_CONFIG="$CCP_DATA/config.json"
     if [ ! -f "$CCP_CONFIG" ]; then
@@ -93,14 +104,19 @@ cc-proxy - Claude Code LLM Proxy Manager
 USAGE: ccp <command>
 
 COMMANDS:
-  activate    Silent auto-start (for .zshrc)
-  start       Force restart and start
-  stop        Stop server
-  restart     Restart server
-  status      Show status
-  logs        Tail logs
-  config      Open config file in editor
-  help        Show this help
+  activate      Silent auto-start (for .zshrc)
+  start         Force restart and start
+  stop          Stop server
+  restart       Restart server
+  status        Show status
+  statusline    Show statusline output (or test with stdin)
+  logs          Tail logs
+  config        Open config file in editor
+  help          Show this help
+
+STATUSLINE:
+  ccp statusline              # Show current session stats
+  echo '{"model":{"display_name":"test"}}' | ccp statusline  # Test with stdin
 
 CONFIG AUTO-RELOAD:
   Edit ~/.claude-code-proxy/config.json to automatically reload configuration
@@ -119,6 +135,7 @@ case "$1" in
     stop) stop; echo "🛑 stopped" ;;
     restart) stop; sleep 1; activate; echo "🔄 restarted" ;;
     status) status ;;
+    statusline) statusline ;;
     logs) logs ;;
     config) config ;;
     help|--help|-h) help ;;

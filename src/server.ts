@@ -7,8 +7,10 @@ import { Logger } from './logger.js';
 import { RequestMapper } from './proxy.js';
 import { getAdapterRegistry } from './adapters/registry.js';
 import type { AdapterContext } from './adapters/types.js';
+import { StatuslineTracker } from './statusline/tracker.js';
 import { join } from 'path';
 import chokidar from 'chokidar';
+import { createHash } from 'crypto';
 
 const app = new Hono();
 
@@ -50,6 +52,15 @@ const requestMapper = new RequestMapper(
   config.providers,
   config.router
 );
+
+// Statusline tracker (global singleton)
+// Session ID will be generated per-request from transcript_path
+let globalStatuslineTracker: StatuslineTracker | null = null;
+
+if (config.statusline?.enabled !== false) {
+  // Initialize with a default session ID (will be overridden per-request)
+  globalStatuslineTracker = new StatuslineTracker('default');
+}
 
 // Hot reload configuration with chokidar
 let configWatcher: chokidar.FSWatcher | null = null;
@@ -134,6 +145,41 @@ app.get('/status', (c) => {
     router: config.router,
     logging: config.logging,
   });
+});
+
+// Statusline endpoint
+app.get('/statusline', (c) => {
+  if (!globalStatuslineTracker) {
+    return c.json({ error: 'Statusline not enabled' }, 400);
+  }
+
+  const sessionTotals = globalStatuslineTracker.getSessionTotals();
+  const weeklyUsage = globalStatuslineTracker.getWeeklyUsage();
+  const lastProviderModel = globalStatuslineTracker.getLastProviderModel();
+
+  return c.json({
+    session: sessionTotals,
+    sessionDisplay: globalStatuslineTracker.formatSessionTotals(),
+    weekly: weeklyUsage,
+    lastProviderModel,
+  });
+});
+
+// Session reset endpoint (for context clear)
+app.post('/session/reset', (c) => {
+  if (!globalStatuslineTracker) {
+    return c.json({ error: 'Statusline not enabled' }, 400);
+  }
+
+  const body = c.req.json().catch(() => ({}));
+  const sessionId = (body as any).sessionId || 'default';
+
+  // Create new tracker for the session to reset
+  const tracker = new StatuslineTracker(sessionId);
+  tracker.resetSession();
+  tracker.close();
+
+  return c.json({ status: 'ok', message: 'Session costs reset' });
 });
 
 // Main proxy endpoint for Anthropic Messages API
@@ -227,6 +273,10 @@ app.post('/v1/messages', async (c) => {
 
         const decoder = new TextDecoder();
         let chunkCount = 0;
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+        let totalCacheReadTokens = 0;
+        let totalCacheWriteTokens = 0;
 
         try {
           while (true) {
@@ -238,9 +288,54 @@ app.post('/v1/messages', async (c) => {
 
             // Stream directly without logging each chunk
             await stream.write(chunk);
+
+            // Try to extract usage from SSE chunks (for streaming token tracking)
+            // SSE format: data: {...}
+            const lines = chunk.split('\n');
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  // Anthropic streaming format
+                  if (data.type === 'message_delta' && data.usage) {
+                    totalOutputTokens += data.usage.output_tokens || 0;
+                  }
+                  if (data.type === 'message_start' && data.message?.usage) {
+                    totalInputTokens += data.message.usage.input_tokens || 0;
+                    totalCacheReadTokens += data.message.usage.cache_read_input_tokens || 0;
+                    totalCacheWriteTokens += data.message.usage.cache_creation_input_tokens || 0;
+                  }
+                  // OpenAI streaming format
+                  if (data.usage) {
+                    totalInputTokens = data.usage.prompt_tokens || totalInputTokens;
+                    totalOutputTokens = data.usage.completion_tokens || totalOutputTokens;
+                  }
+                } catch {
+                  // Ignore parse errors for non-JSON chunks
+                }
+              }
+            }
           }
         } finally {
           reader.releaseLock();
+
+          // Track token usage for streaming (if we captured any)
+          if (globalStatuslineTracker && (totalInputTokens > 0 || totalOutputTokens > 0)) {
+            const transcriptPath = headers['x-transcript-path'] || body.transcript_path;
+            const sessionId = transcriptPath
+              ? createHash('md5').update(transcriptPath).digest('hex').slice(0, 16)
+              : 'default';
+
+            globalStatuslineTracker.sessionId = sessionId;
+
+            const providerModel = `${provider.name}:${modelName}`;
+            globalStatuslineTracker.recordUsage(providerModel, {
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+              cacheReadTokens: totalCacheReadTokens,
+              cacheWriteTokens: totalCacheWriteTokens,
+            });
+          }
 
           // Log streaming summary (only if verbose)
           if (config.logging.level === 'verbose') {
@@ -249,7 +344,7 @@ app.post('/v1/messages', async (c) => {
               modelName,
               format || 'pass-through',
               providerRequest,
-              { streaming: true, chunks: chunkCount }
+              { streaming: true, chunks: chunkCount, tokens: { input: totalInputTokens, output: totalOutputTokens } }
             );
           }
         }
@@ -262,6 +357,27 @@ app.post('/v1/messages', async (c) => {
     // Process response through adapter (e.g., convert OpenAI → Anthropic)
     if (adapter.processResponse) {
       responseBody = adapter.processResponse(responseBody, adapterContext);
+    }
+
+    // Track token usage for statusline
+    if (globalStatuslineTracker && responseBody.usage) {
+      // Generate session ID from transcript path (if available in headers or body)
+      const transcriptPath = headers['x-transcript-path'] || body.transcript_path;
+      const sessionId = transcriptPath
+        ? createHash('md5').update(transcriptPath).digest('hex').slice(0, 16)
+        : 'default';
+
+      // Update tracker's session ID
+      globalStatuslineTracker.sessionId = sessionId;
+
+      // Record usage
+      const providerModel = `${provider.name}:${modelName}`;
+      globalStatuslineTracker.recordUsage(providerModel, {
+        inputTokens: responseBody.usage.input_tokens || 0,
+        outputTokens: responseBody.usage.output_tokens || 0,
+        cacheReadTokens: responseBody.usage.cache_read_input_tokens || 0,
+        cacheWriteTokens: responseBody.usage.cache_creation_input_tokens || 0,
+      });
     }
 
     // Log response details (combine forward + response into one call)
@@ -333,13 +449,29 @@ console.log(`📁 Config: ${require('./config.js').getDefaultConfigPath()}`);
 // Setup config watcher for hot reload (only once)
 setupConfigWatcher();
 
-// Graceful shutdown: flush log buffer on exit
-process.on('exit', () => (appLogger as any).destroy?.());
+// Periodic cleanup of old sessions (every hour)
+if (globalStatuslineTracker) {
+  const retentionHours = config.statusline?.sessionRetentionHours || 24;
+  setInterval(() => {
+    const cleaned = globalStatuslineTracker!.cleanupOldSessions(retentionHours);
+    if (cleaned > 0) {
+      console.log(`🧹 Cleaned up ${cleaned} old sessions`);
+    }
+  }, 60 * 60 * 1000); // 1 hour
+}
+
+// Graceful shutdown: flush log buffer and close tracker on exit
+process.on('exit', () => {
+  (appLogger as any).destroy?.();
+  globalStatuslineTracker?.close();
+});
 process.on('SIGINT', () => {
   (appLogger as any).destroy?.();
+  globalStatuslineTracker?.close();
   process.exit(0);
 });
 process.on('SIGTERM', () => {
   (appLogger as any).destroy?.();
+  globalStatuslineTracker?.close();
   process.exit(0);
 });
